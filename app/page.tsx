@@ -1,101 +1,192 @@
-import Image from "next/image";
+"use client";
 
-export default function Home() {
+import { useState, useEffect } from "react";
+import { Button } from "@/components/ui/button";
+import { PlusIcon } from "lucide-react";
+import { Toaster, toast } from "react-hot-toast";
+import NoteGrid from "@/components/NoteGrid";
+import Pagination from "@/components/Pagination";
+import NoteModal from "@/components/NoteModal";
+
+import {
+  collection,
+  addDoc,
+  getDocs,
+  updateDoc,
+  deleteDoc,
+  doc,
+  Timestamp,
+} from "firebase/firestore";
+import { db } from "@/lib/firebase";
+
+export interface Note {
+  id: string;
+  title: string;
+  tagline: string;
+  body: string;
+  pinned: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export default function NotekeeperApp() {
+  const [notes, setNotes] = useState<Note[]>([]);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingNote, setEditingNote] = useState<Note | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const notesPerPage = 6;
+
+  const notesCollection = collection(db, "notes");
+
+  // Fetch Notes from Firestore
+  const fetchNotes = async () => {
+    try {
+      const snapshot = await getDocs(notesCollection);
+      const fetchedNotes = snapshot.docs.map((doc) => ({
+        id: doc.id,
+        ...doc.data(),
+        createdAt: doc.data().createdAt.toDate(),
+        updatedAt: doc.data().updatedAt.toDate(),
+      })) as Note[];
+      setNotes(fetchedNotes);
+    } catch (error) {
+      toast.error("Failed to fetch notes");
+      console.error("Error fetching notes:", error);
+    }
+  };
+
+  useEffect(() => {
+    fetchNotes();
+  }, []);
+
+  const addNote = async (note: Omit<Note, "id" | "createdAt" | "updatedAt" | "pinned">) => {
+    try {
+      const newNote = {
+        ...note,
+        pinned: false,
+        createdAt: Timestamp.now(),
+        updatedAt: Timestamp.now(),
+      };
+      const docRef = await addDoc(notesCollection, newNote);
+      setNotes((prevNotes) => [
+        {
+          id: docRef.id,
+          ...newNote,
+          createdAt: newNote.createdAt.toDate(),
+          updatedAt: newNote.updatedAt.toDate(),
+        },
+        ...prevNotes,
+      ]);
+      toast.success("Note added successfully");
+    } catch (error) {
+      toast.error("Failed to add note");
+      console.error("Error adding note:", error);
+    }
+  };
+
+  const updateNote = async (updatedNote: Note) => {
+    try {
+      const noteRef = doc(db, "notes", updatedNote.id);
+      await updateDoc(noteRef, {
+        ...updatedNote,
+        updatedAt: Timestamp.now(),
+      });
+      setNotes((prevNotes) =>
+        prevNotes.map((note) =>
+          note.id === updatedNote.id
+            ? {
+                ...updatedNote,
+                updatedAt: new Date(),
+              }
+            : note
+        )
+      );
+      toast.success("Note updated successfully");
+    } catch (error) {
+      toast.error("Failed to update note");
+      console.error("Error updating note:", error);
+    }
+  };
+
+  const togglePin = async (id: string) => {
+    try {
+      const note = notes.find((note) => note.id === id);
+      if (note) {
+        const noteRef = doc(db, "notes", id);
+        await updateDoc(noteRef, { pinned: !note.pinned });
+        setNotes((prevNotes) =>
+          prevNotes.map((note) =>
+            note.id === id ? { ...note, pinned: !note.pinned } : note
+          )
+        );
+        toast.success("Note pin toggled");
+      }
+    } catch (error) {
+      toast.error("Failed to toggle pin");
+      console.error("Error toggling pin:", error);
+    }
+  };
+
+  const deleteNote = async (id: string) => {
+    try {
+      const noteRef = doc(db, "notes", id);
+      await deleteDoc(noteRef);
+      setNotes((prevNotes) => prevNotes.filter((note) => note.id !== id));
+      toast.success("Note deleted successfully");
+    } catch (error) {
+      toast.error("Failed to delete note");
+      console.error("Error deleting note:", error);
+    }
+  };
+
+  const sortedNotes = [...notes].sort((a, b) => {
+    if (a.pinned === b.pinned) {
+      return b.updatedAt.getTime() - a.updatedAt.getTime();
+    }
+    return a.pinned ? -1 : 1;
+  });
+
+  const indexOfLastNote = currentPage * notesPerPage;
+  const indexOfFirstNote = indexOfLastNote - notesPerPage;
+  const currentNotes = sortedNotes.slice(indexOfFirstNote, indexOfLastNote);
+
+  const totalPages = Math.ceil(notes.length / notesPerPage);
+
   return (
-    <div className="grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]">
-      <main className="flex flex-col gap-8 row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="list-inside list-decimal text-sm text-center sm:text-left font-[family-name:var(--font-geist-mono)]">
-          <li className="mb-2">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] px-1 py-0.5 rounded font-semibold">
-              app/page.tsx
-            </code>
-            .
-          </li>
-          <li>Save and see your changes instantly.</li>
-        </ol>
-
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:min-w-44"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
-        </div>
-      </main>
-      <footer className="row-start-3 flex gap-6 flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
+    <div className="container mx-auto p-4">
+      <Toaster position="top-right" />
+      <h1 className="text-3xl font-bold mb-4">Notekeeper</h1>
+      <Button onClick={() => setIsModalOpen(true)} className="mb-4">
+        <PlusIcon className="mr-2 h-4 w-4" /> Add Note
+      </Button>
+      <NoteGrid
+        notes={currentNotes}
+        onNoteClick={setEditingNote}
+        onPinToggle={togglePin}
+        onDelete={deleteNote}
+      />
+      <Pagination
+        currentPage={currentPage}
+        totalPages={totalPages}
+        onPageChange={setCurrentPage}
+      />
+      <NoteModal
+        isOpen={isModalOpen || !!editingNote}
+        onClose={() => {
+          setIsModalOpen(false);
+          setEditingNote(null);
+        }}
+        onSave={(note) => {
+          if (editingNote) {
+            updateNote({ ...editingNote, ...note });
+          } else {
+            addNote(note);
+          }
+          setIsModalOpen(false);
+          setEditingNote(null);
+        }}
+        note={editingNote}
+      />
     </div>
   );
 }
